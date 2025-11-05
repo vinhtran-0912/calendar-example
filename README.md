@@ -30,7 +30,7 @@ pnpm dev
 - **Drop targets**: `src/app/calendar/_components/droppable-day.tsx` and `src/app/calendar/_components/droppable-section.tsx` use `useDrop`, accept `'EXERCISE'`, and return `{ dayId, sectionId, index }`.
 - **Move logic**: On drop, an action is dispatched to move or reorder the exercise; optional `hover` can refine reordering while dragging.
 - **State updates**: Centralized immutable updates in `src/app/lib/state/calendarReducer.ts`, consumed by `src/app/calendar/page.tsx`.
-- **Persistence**: Optimistic UI; sync via `src/app/api/calendar/mutation/route.ts`, read via `src/app/api/calendar/week/route.ts`; data backed by `db.json`.
+- **Persistence**: Optimistic UI; sync via `src/app/api/calendar/mutation/route.ts`, read via `src/app/api/calendar/all/route.ts`. Other calendar list/catalog endpoints were removed as redundant.
 - **Auto-scroll**: Horizontal auto-scroll during drag via `src/app/hooks/useHorizontalAutoScrollOnDrag.ts`.
 - **UX cues**: Highlights when `isOver && canDrop`; invalid drops are prevented with `canDrop`.
 - **IDs/keys**: Stable `exerciseId` and list keys to avoid remounts/flicker.
