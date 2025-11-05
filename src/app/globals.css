@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "tailwindcss-animated";
 
 @theme {
   --font-sans: var(--font-open-sans), ui-sans-serif, system-ui, "Segoe UI", Roboto,
@@ -6,6 +7,8 @@
     "Segoe UI Symbol", "Noto Color Emoji";
   
   --color-calendar-bg: #F3F5F8;
+  --color-purple-600: #5A57CB;
+  --color-gray-500: #A0A8B1;
 }
 
 body {

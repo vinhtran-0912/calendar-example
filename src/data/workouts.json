@@ -1,0 +1,19 @@
+[
+  {
+    "id": "w1",
+    "name": "Chest Day - with Arm exercises",
+    "exerciseIds": ["e1", "e2"]
+  },
+  {
+    "id": "w2",
+    "name": "Leg Day",
+    "exerciseIds": ["e3", "e4", "e5"]
+  },
+  {
+    "id": "w3",
+    "name": "Arm Day",
+    "exerciseIds": ["e6"]
+  }
+]
+
+

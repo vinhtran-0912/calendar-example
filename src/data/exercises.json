@@ -1,0 +1,40 @@
+[
+  {
+    "id": "e1",
+    "name": "Bench Press Medium Grip",
+    "setsInfo": "50 lb x 5, 60 lb x 5, 70 lb x 5",
+    "setsCount": 3
+  },
+  {
+    "id": "e2",
+    "name": "Exercise B",
+    "setsInfo": "40 lb x 10",
+    "setsCount": 1
+  },
+  {
+    "id": "e3",
+    "name": "Exercise C",
+    "setsInfo": "30 lb x 6",
+    "setsCount": 1
+  },
+  {
+    "id": "e4",
+    "name": "Exercise D",
+    "setsInfo": "40 lb x 5",
+    "setsCount": 1
+  },
+  {
+    "id": "e5",
+    "name": "Exercise E",
+    "setsInfo": "50 lb x 5",
+    "setsCount": 1
+  },
+  {
+    "id": "e6",
+    "name": "Exercise F",
+    "setsInfo": "60 lb x 6",
+    "setsCount": 1
+  }
+]
+
+

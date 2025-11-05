@@ -23,6 +23,19 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+### Mock API (optional)
+
+Use `json-server` to serve mock calendar data from `db.json` on port 4000.
+
+```bash
+pnpm install
+pnpm run dev:api
+```
+
+Endpoints:
+
+- http://localhost:4000/days
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
