@@ -16,11 +16,20 @@ export default function DroppableDay({
   onSectionDayDrop: (item: SectionDragItem, targetDay: Date) => void;
   children: React.ReactNode;
 }) {
-  const [{ isOver }, drop] = useDrop<DragItem | SectionDragItem, void, { isOver: boolean }>(() => ({
+  const [{ isOver }, drop] = useDrop<
+    DragItem | SectionDragItem,
+    { handled: true } | undefined,
+    { isOver: boolean }
+  >(() => ({
     accept: [ITEM_TYPES.EXERCISE, ITEM_TYPES.WORKOUT],
-    drop: (item) => {
-      if ("exerciseId" in item) onDrop(item as DragItem, day.date);
-      else onSectionDayDrop(item as SectionDragItem, day.date);
+    drop: (item, monitor) => {
+      if (monitor.didDrop()) return undefined;
+      if ("exerciseId" in item) {
+        onDrop(item as DragItem, day.date);
+      } else {
+        onSectionDayDrop(item as SectionDragItem, day.date);
+      }
+      return { handled: true };
     },
     collect: (monitor) => ({ isOver: monitor.isOver() }),
   }));
@@ -36,5 +45,3 @@ export default function DroppableDay({
     </div>
   );
 }
-
-

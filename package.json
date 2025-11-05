@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:api": "json-server --watch db.json --port 4000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -24,7 +23,6 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
-    "json-server": "^0.17.4",
     "tailwindcss": "^4",
     "tailwindcss-animated": "^2.0.0",
     "typescript": "^5"

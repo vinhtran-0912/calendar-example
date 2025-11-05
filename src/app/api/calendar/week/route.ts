@@ -15,5 +15,3 @@ export function GET(request: Request) {
   const week = getWeekByMonday(mondayIso);
   return NextResponse.json({ monday: mondayIso, days: week });
 }
-
-

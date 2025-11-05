@@ -6,6 +6,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
     | "icon-small"
     | "icon-large"
     | "primary"
+    | "secondary"
     | "default"
     | "unstyled";
   children?: React.ReactNode;
@@ -23,16 +24,19 @@ export default function Button({
   ...props
 }: ButtonProps) {
   const baseClasses =
-    "cursor-pointer flex items-center justify-center rounded-full transition-colors hover:bg-gray-50";
+    "cursor-pointer flex items-center justify-center rounded-full transition-colors hover:bg-gray-50 font-medium";
 
   const variantClasses = {
-    "icon-small": "h-4 w-4 min-w-4 bg-gray-500 hover:bg-gray-400 hover:border-none",
+    "icon-small":
+      "h-4 w-4 min-w-4 bg-gray-500 hover:bg-gray-400 hover:border-none",
     icon: "h-6 w-6 min-w-6",
     "icon-large": "size-8",
     primary:
       "bg-black text-white hover:bg-blue-700 text-sm leading-none px-4 py-2 h-8 hover:bg-gray-700",
     unstyled:
       "bg-transparent text-gray-400 hover:bg-gray-50 p-0 h-8 border-none hover:text-purple-600 hover:bg-transparent",
+    secondary:
+      "bg-gray-500 text-white hover:bg-gray-400 hover:border-none px-4 py-2 h-8",
     default:
       "bg-white text-gray-400 hover:bg-gray-50 px-4 py-2 h-8 border border-gray-300",
   } as const;
@@ -42,6 +46,7 @@ export default function Button({
     icon: "text-sm leading-none",
     "icon-large": "text-base leading-none",
     primary: "text-sm leading-none",
+    secondary: "text-sm leading-none",
     default: "text-sm leading-none",
     unstyled: "text-sm leading-none",
   } as const;

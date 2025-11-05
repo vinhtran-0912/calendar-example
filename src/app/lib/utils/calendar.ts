@@ -55,6 +55,28 @@ export const appendExerciseToSection = (
   });
 };
 
+export const insertExerciseToSection = (
+  targetDayIndex: number,
+  targetSectionIndex: number,
+  targetExerciseIndex: number,
+  exercise: Exercise,
+  state: Day[]
+): Day[] => {
+  return state.map((day, dIdx) => {
+    if (dIdx !== targetDayIndex) return day;
+    return {
+      ...day,
+      sections: day.sections.map((section, sIdx) => {
+        if (sIdx !== targetSectionIndex) return section;
+        const next = [...section.exercises];
+        const clampedIndex = Math.max(0, Math.min(targetExerciseIndex, next.length));
+        next.splice(clampedIndex, 0, { ...exercise });
+        return { ...section, exercises: next };
+      }),
+    };
+  });
+};
+
 export const removeSectionFrom = (
   sourceDayIndex: number,
   sourceSectionIndex: number,
@@ -111,4 +133,26 @@ export const findExercise = (
     sectionIndex,
     exerciseIndex,
   };
+};
+
+export const findExerciseAnywhere = (
+  days: Day[],
+  exerciseId: string
+) => {
+  for (let dayIndex = 0; dayIndex < days.length; dayIndex++) {
+    const sections = days[dayIndex].sections;
+    for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+      const exercises = sections[sectionIndex].exercises;
+      const exerciseIndex = exercises.findIndex((e) => e.id === exerciseId);
+      if (exerciseIndex !== -1) {
+        return {
+          exercise: exercises[exerciseIndex],
+          dayIndex,
+          sectionIndex,
+          exerciseIndex,
+        };
+      }
+    }
+  }
+  return null;
 };

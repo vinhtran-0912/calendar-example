@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useReducer } from "react";
 import { useDrag, useDrop } from "react-dnd";
 import type { RefObject } from "react";
 import Button from "../components/button";
@@ -14,16 +14,11 @@ import type {
   SectionDragItem,
 } from "../lib/types/calendar";
 import { getCurrentWeek, isSameDay } from "../lib/utils/date";
-import {
-  getDayIndexByDate,
-  removeExerciseFrom,
-  appendExerciseToSection,
-  removeSectionFrom,
-  insertSectionAt,
-  findExercise,
-} from "../lib/utils/calendar";
+import { getDayIndexByDate } from "../lib/utils/calendar";
+import { calendarReducer } from "../lib/state/calendarReducer";
 import { ITEM_TYPES, DAY_NAMES } from "../lib/constants/calendar";
 import Image from "next/image";
+import { useHorizontalAutoScrollOnDrag } from "../hooks/useHorizontalAutoScrollOnDrag";
 
 function DraggableExercise({
   exercise,
@@ -31,12 +26,19 @@ function DraggableExercise({
   sectionId,
   exerciseIndex,
   onOpenEdit,
+  onDropOnExercise,
 }: {
   exercise: Exercise;
   dayDate: Date;
   sectionId: string;
   exerciseIndex: number;
   onOpenEdit: (exercise: Exercise) => void;
+  onDropOnExercise: (
+    item: DragItem,
+    targetDay: Date,
+    targetSectionId: string,
+    targetExerciseIndex: number
+  ) => void;
 }) {
   const [{ isDragging }, drag] = useDrag(() => ({
     type: ITEM_TYPES.EXERCISE,
@@ -51,9 +53,29 @@ function DraggableExercise({
     }),
   }));
 
+  // This is used to drop the exercise on the section.
+  const [, drop] = useDrop<DragItem, { handled: true } | undefined>(() => ({
+    accept: [ITEM_TYPES.EXERCISE],
+    drop: (item, monitor) => {
+      if (monitor.didDrop()) return undefined;
+      onDropOnExercise(item, dayDate, sectionId, exerciseIndex);
+      return { handled: true };
+    },
+  }));
+
+  // This is used to set the ref for the drag and drop component.
+  const setDragDropRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node) {
+        drag(drop(node));
+      }
+    },
+    [drag, drop]
+  );
+
   return (
     <Card
-      ref={drag as unknown as RefObject<HTMLDivElement>}
+      ref={setDragDropRef as unknown as RefObject<HTMLDivElement>}
       isDragging={isDragging}
       className="cursor-move flex flex-col items-end"
     >
@@ -79,7 +101,6 @@ function DroppableSection({
   dayDate,
   onDrop,
   onSectionDrop,
-  onAddExercise,
   children,
 }: {
   section: Section;
@@ -95,19 +116,21 @@ function DroppableSection({
 }) {
   const [{ isOver }, drop] = useDrop<
     DragItem | SectionDragItem,
-    void,
+    { handled: true } | undefined,
     { isOver: boolean }
   >(() => ({
     accept: [ITEM_TYPES.EXERCISE, ITEM_TYPES.WORKOUT],
-    drop: (item: DragItem | SectionDragItem) => {
+    drop: (item: DragItem | SectionDragItem, monitor) => {
+      if (monitor.didDrop()) return undefined;
       if ("exerciseId" in item) {
         onDrop(item, dayDate, section.id);
       } else {
         onSectionDrop(item, dayDate, section.id);
       }
+      return { handled: true };
     },
     collect: (monitor) => ({
-      isOver: monitor.isOver(),
+      isOver: monitor.isOver({ shallow: true }),
     }),
   }));
 
@@ -140,13 +163,15 @@ function DroppableDay({
 }) {
   const [{ isOver }, drop] = useDrop<
     DragItem | SectionDragItem,
-    void,
+    { handled: true } | undefined,
     { isOver: boolean }
   >(() => ({
     accept: [ITEM_TYPES.EXERCISE, ITEM_TYPES.WORKOUT],
-    drop: (item: DragItem | SectionDragItem) => {
+    drop: (item: DragItem | SectionDragItem, monitor) => {
+      if (monitor.didDrop()) return undefined; // child already handled
       if ("exerciseId" in item) onDrop(item, day.date);
       else onSectionDayDrop(item, day.date);
+      return { handled: true };
     },
     collect: (monitor) => ({
       isOver: monitor.isOver(),
@@ -156,7 +181,7 @@ function DroppableDay({
   return (
     <div
       ref={drop as unknown as RefObject<HTMLDivElement>}
-      className={`flex flex-col bg-calendar-bg rounded-lg p-3 min-w-60 min-h-[600px] ${
+      className={`flex flex-col bg-calendar-bg rounded-lg p-3 min-w-60 h-screen overflow-y-auto ${
         isOver ? "ring-2 ring-blue-400" : ""
       }`}
     >
@@ -200,25 +225,41 @@ export default function CalendarPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [days, setDays] = useState<Day[]>(() => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const [days, dispatch] = useReducer(calendarReducer, [] as Day[]);
+
+  const serverPatch = async (body: unknown) => {
+    try {
+      await fetch("/api/calendar/mutation", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      console.error("Failed to PATCH calendar mutation", error);
+    }
+  };
+
+  useEffect(() => {
     const weekDates = getCurrentWeek();
-    return weekDates.map((date, index) => {
+    const next = weekDates.map((date, index) => {
       if (index === 1) {
         return {
           date,
           sections: [
             {
-              id: "1",
+              id: `sec-${index}-0`,
               title: "CHEST DAY - WITH ARM DAY",
               exercises: [
                 {
-                  id: "1",
+                  id: `ex-${index}-0-0`,
                   name: "Bench Press Med...",
                   sets: "3",
                   details: "50 lb x 5, 60 lb x 5, 70 l...",
                 },
                 {
-                  id: "2",
+                  id: `ex-${index}-0-1`,
                   name: "Exercise B",
                   sets: "1",
                   details: "40 lb x 10",
@@ -233,23 +274,23 @@ export default function CalendarPage() {
           date,
           sections: [
             {
-              id: "2",
+              id: `sec-${index}-0`,
               title: "LEG DAY",
               exercises: [
                 {
-                  id: "3",
+                  id: `ex-${index}-0-0`,
                   name: "Exercise C",
                   sets: "1",
                   details: "30 lb x 6",
                 },
                 {
-                  id: "4",
+                  id: `ex-${index}-0-1`,
                   name: "Exercise D",
                   sets: "1",
                   details: "40 lb x 5",
                 },
                 {
-                  id: "5",
+                  id: `ex-${index}-0-2`,
                   name: "Exercise E",
                   sets: "1",
                   details: "50 lb x 5",
@@ -257,11 +298,11 @@ export default function CalendarPage() {
               ],
             },
             {
-              id: "3",
+              id: `sec-${index}-1`,
               title: "ARM DAY",
               exercises: [
                 {
-                  id: "6",
+                  id: `ex-${index}-1-0`,
                   name: "Exercise F",
                   sets: "1",
                   details: "60 lb x 6",
@@ -271,17 +312,13 @@ export default function CalendarPage() {
           ],
         };
       }
-      return {
-        date,
-        sections: [],
-      };
+      return { date, sections: [] };
     });
-  });
+    setTimeout(() => dispatch({ type: "INIT", days: next }), 0);
+  }, []);
 
   const [creatingDay, setCreatingDay] = useState<Date | null>(null);
   const [newWorkoutTitle, setNewWorkoutTitle] = useState<string>("");
-  const sectionIdRef = useRef<number>(0);
-  const exerciseIdRef = useRef<number>(0);
   const [creatingExerciseFor, setCreatingExerciseFor] = useState<{
     day: Date;
     sectionId: string;
@@ -289,16 +326,7 @@ export default function CalendarPage() {
   const [newExerciseName, setNewExerciseName] = useState<string>("");
   const [newExerciseSetsInfo, setNewExerciseSetsInfo] = useState<string>("");
   const [newExerciseSetsCount, setNewExerciseSetsCount] = useState<string>("1");
-  const [editingSection, setEditingSection] = useState<{
-    day: Date;
-    sectionId: string;
-  } | null>(null);
   const [sectionTitleInput, setSectionTitleInput] = useState<string>("");
-  const [editingExercise, setEditingExercise] = useState<{
-    day: Date;
-    sectionId: string;
-    exerciseId: string;
-  } | null>(null);
   const [editExerciseName, setEditExerciseName] = useState<string>("");
   const [editExerciseSets, setEditExerciseSets] = useState<string>("");
   const [editExerciseDetails, setEditExerciseDetails] = useState<string>("");
@@ -317,18 +345,6 @@ export default function CalendarPage() {
   const [isSectionActionLoading, setIsSectionActionLoading] = useState(false);
   const [isExerciseActionLoading, setIsExerciseActionLoading] = useState(false);
 
-  const [openSectionMenu, setOpenSectionMenu] = useState<{
-    day: Date;
-    sectionId: string;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!openSectionMenu) return;
-    const handleClickAway = () => setOpenSectionMenu(null);
-    document.addEventListener("click", handleClickAway);
-    return () => document.removeEventListener("click", handleClickAway);
-  }, [openSectionMenu]);
-
   const startCreateForDay = (date: Date) => {
     setCreatingDay(date);
     setNewWorkoutTitle("");
@@ -340,77 +356,26 @@ export default function CalendarPage() {
   };
 
   const saveCreate = (date: Date) => {
-    const dayIndex = getDayIndexByDate(days, date);
-    if (dayIndex === -1) return;
     const title = newWorkoutTitle.trim();
     if (!title) return;
-    sectionIdRef.current += 1;
-    const section: Section = {
-      id: `sec-${sectionIdRef.current}`,
-      title,
-      exercises: [],
-    };
-    setDays((prev) =>
-      prev.map((d, idx) =>
-        idx === dayIndex ? { ...d, sections: [...d.sections, section] } : d
-      )
-    );
+    dispatch({ type: "CREATE_SECTION", day: date, title });
     setCreatingDay(null);
     setNewWorkoutTitle("");
   };
-
-  const beginEditSection = (
-    day: Date,
-    sectionId: string,
-    currentTitle: string
-  ) => {
-    setEditingSection({ day, sectionId });
-    setSectionTitleInput(currentTitle);
-  };
-
   const cancelEditSection = () => {
-    setEditingSection(null);
     setSectionTitleInput("");
   };
 
   const saveEditSection = (day: Date, sectionId: string) => {
     const title = sectionTitleInput.trim();
     if (!title) return;
-    const dayIndex = getDayIndexByDate(days, day);
-    if (dayIndex === -1) return;
-    setDays((prev) =>
-      prev.map((d, dIdx) =>
-        dIdx !== dayIndex
-          ? d
-          : {
-              ...d,
-              sections: d.sections.map((s) =>
-                s.id !== sectionId ? s : { ...s, title }
-              ),
-            }
-      )
-    );
+    dispatch({ type: "EDIT_SECTION", day, sectionId, title });
     cancelEditSection();
   };
 
   const deleteSection = (day: Date, sectionId: string) => {
-    const dayIndex = getDayIndexByDate(days, day);
-    if (dayIndex === -1) return;
-    setDays((prev) =>
-      prev.map((d, dIdx) =>
-        dIdx !== dayIndex
-          ? d
-          : { ...d, sections: d.sections.filter((s) => s.id !== sectionId) }
-      )
-    );
+    dispatch({ type: "DELETE_SECTION", day, sectionId });
     cancelEditSection();
-  };
-
-  const startCreateExercise = (day: Date, sectionId: string) => {
-    setCreatingExerciseFor({ day, sectionId });
-    setNewExerciseName("");
-    setNewExerciseSetsInfo("");
-    setNewExerciseSetsCount("1");
   };
 
   const cancelCreateExercise = () => {
@@ -420,49 +385,15 @@ export default function CalendarPage() {
   const saveCreateExercise = (day: Date, sectionId: string) => {
     const name = newExerciseName.trim();
     if (!name) return;
-    const info = newExerciseSetsInfo.trim();
-    const count = newExerciseSetsCount.trim();
-    const dayIndex = getDayIndexByDate(days, day);
-    if (dayIndex === -1) return;
-    const sectionIndex = days[dayIndex].sections.findIndex(
-      (s) => s.id === sectionId
-    );
-    if (sectionIndex === -1) return;
-
-    exerciseIdRef.current += 1;
-    const exercise: Exercise = {
-      id: `ex-${exerciseIdRef.current}`,
+    dispatch({
+      type: "CREATE_EXERCISE",
+      day,
+      sectionId,
       name,
-      sets: count || "1",
-      details: info,
-    };
-
-    setDays((prev) =>
-      prev.map((d, dIdx) =>
-        dIdx !== dayIndex
-          ? d
-          : {
-              ...d,
-              sections: d.sections.map((s, sIdx) =>
-                sIdx !== sectionIndex
-                  ? s
-                  : { ...s, exercises: [...s.exercises, exercise] }
-              ),
-            }
-      )
-    );
+      sets: newExerciseSetsCount.trim() || "1",
+      details: newExerciseSetsInfo.trim(),
+    });
     setCreatingExerciseFor(null);
-  };
-
-  const beginEditExercise = (day: Date, sectionId: string, ex: Exercise) => {
-    setEditingExercise({ day, sectionId, exerciseId: ex.id });
-    setEditExerciseName(ex.name);
-    setEditExerciseSets(ex.sets);
-    setEditExerciseDetails(ex.details);
-  };
-
-  const cancelEditExercise = () => {
-    setEditingExercise(null);
   };
 
   const saveEditExercise = (
@@ -470,86 +401,27 @@ export default function CalendarPage() {
     sectionId: string,
     exerciseId: string
   ) => {
-    const dayIndex = getDayIndexByDate(days, day);
-    if (dayIndex === -1) return;
-    setDays((prev) =>
-      prev.map((d, dIdx) =>
-        dIdx !== dayIndex
-          ? d
-          : {
-              ...d,
-              sections: d.sections.map((s) =>
-                s.id !== sectionId
-                  ? s
-                  : {
-                      ...s,
-                      exercises: s.exercises.map((e) =>
-                        e.id !== exerciseId
-                          ? e
-                          : {
-                              ...e,
-                              name: editExerciseName,
-                              sets: editExerciseSets,
-                              details: editExerciseDetails,
-                            }
-                      ),
-                    }
-              ),
-            }
-      )
-    );
-    cancelEditExercise();
+    dispatch({
+      type: "EDIT_EXERCISE",
+      day,
+      sectionId,
+      exerciseId,
+      name: editExerciseName,
+      sets: editExerciseSets,
+      details: editExerciseDetails,
+    });
   };
 
   const deleteExercise = (day: Date, sectionId: string, exerciseId: string) => {
-    const dayIndex = getDayIndexByDate(days, day);
-    if (dayIndex === -1) return;
-    setDays((prev) =>
-      prev.map((d, dIdx) =>
-        dIdx !== dayIndex
-          ? d
-          : {
-              ...d,
-              sections: d.sections.map((s) =>
-                s.id !== sectionId
-                  ? s
-                  : {
-                      ...s,
-                      exercises: s.exercises.filter((e) => e.id !== exerciseId),
-                    }
-              ),
-            }
-      )
-    );
-    cancelEditExercise();
+    dispatch({ type: "DELETE_EXERCISE", day, sectionId, exerciseId });
   };
 
   const moveExerciseToSection = (
     source: { dayIndex: number; sectionIndex: number; exerciseIndex: number },
-    target: { dayIndex: number; sectionIndex: number }
+    target: { dayIndex: number; sectionIndex: number; exerciseIndex?: number }
   ) => {
-    if (
-      source.dayIndex === target.dayIndex &&
-      source.sectionIndex === target.sectionIndex
-    ) {
-      return;
-    }
-
-    setDays((prev) => {
-      const { updatedDays, removed } = removeExerciseFrom(
-        source.dayIndex,
-        source.sectionIndex,
-        source.exerciseIndex,
-        prev
-      );
-      const next = appendExerciseToSection(
-        target.dayIndex,
-        target.sectionIndex,
-        removed,
-        updatedDays
-      );
-      return next;
-    });
+    dispatch({ type: "MOVE_EXERCISE", source, target });
+    void serverPatch({ type: "MOVE_EXERCISE", source, target });
   };
 
   const onSectionDrop = (
@@ -565,19 +437,19 @@ export default function CalendarPage() {
     );
     if (targetSectionIndex === -1) return;
 
-    setDays((prev) => {
-      const { updatedDays, removed } = removeSectionFrom(
-        sourceDayIndex,
-        item.sourceSectionIndex,
-        prev
-      );
-      const next = insertSectionAt(
-        targetDayIndex,
-        targetSectionIndex,
-        removed,
-        updatedDays
-      );
-      return next;
+    dispatch({
+      type: "MOVE_SECTION",
+      sourceDayIndex,
+      sourceSectionIndex: item.sourceSectionIndex,
+      targetDayIndex,
+      targetSectionIndex,
+    });
+    void serverPatch({
+      type: "MOVE_SECTION",
+      sourceDayIndex,
+      sourceSectionIndex: item.sourceSectionIndex,
+      targetDayIndex,
+      targetSectionIndex,
     });
   };
 
@@ -585,18 +457,19 @@ export default function CalendarPage() {
     const sourceDayIndex = getDayIndexByDate(days, item.sourceDay);
     const targetDayIndex = getDayIndexByDate(days, targetDay);
     if (sourceDayIndex === -1 || targetDayIndex === -1) return;
-    setDays((prev) => {
-      const { updatedDays, removed } = removeSectionFrom(
-        sourceDayIndex,
-        item.sourceSectionIndex,
-        prev
-      );
-      const next = updatedDays.map((d, idx) =>
-        idx !== targetDayIndex
-          ? d
-          : { ...d, sections: [...d.sections, { ...removed }] }
-      );
-      return next;
+    dispatch({
+      type: "MOVE_SECTION",
+      sourceDayIndex,
+      sourceSectionIndex: item.sourceSectionIndex,
+      targetDayIndex,
+      targetSectionIndex: days[targetDayIndex].sections.length,
+    });
+    void serverPatch({
+      type: "MOVE_SECTION",
+      sourceDayIndex,
+      sourceSectionIndex: item.sourceSectionIndex,
+      targetDayIndex,
+      targetSectionIndex: days[targetDayIndex].sections.length,
     });
   };
 
@@ -605,13 +478,13 @@ export default function CalendarPage() {
     targetDay: Date,
     targetSectionId: string
   ) => {
-    const source = findExercise(
-      days,
-      item.sourceDay,
-      item.sourceSectionId,
-      item.exerciseId
+    const sourceDayIndex = getDayIndexByDate(days, item.sourceDay);
+    if (sourceDayIndex === -1) return;
+    const sourceSectionIndex = days[sourceDayIndex].sections.findIndex(
+      (s) => s.id === item.sourceSectionId
     );
-    if (!source) return;
+    if (sourceSectionIndex === -1) return;
+    const sourceExerciseIndex = item.sourceExerciseIndex;
 
     const targetDayIndex = getDayIndexByDate(days, targetDay);
     if (targetDayIndex === -1) return;
@@ -623,11 +496,45 @@ export default function CalendarPage() {
 
     moveExerciseToSection(
       {
-        dayIndex: source.dayIndex,
-        sectionIndex: source.sectionIndex,
-        exerciseIndex: source.exerciseIndex,
+        dayIndex: sourceDayIndex,
+        sectionIndex: sourceSectionIndex,
+        exerciseIndex: sourceExerciseIndex,
       },
       { dayIndex: targetDayIndex, sectionIndex: targetSectionIndex }
+    );
+  };
+
+  const handleExerciseDrop = (
+    item: DragItem,
+    targetDay: Date,
+    targetSectionId: string,
+    targetExerciseIndex: number
+  ) => {
+    const sourceDayIndex = getDayIndexByDate(days, item.sourceDay);
+    if (sourceDayIndex === -1) return;
+    const sourceSectionIndex = days[sourceDayIndex].sections.findIndex(
+      (s) => s.id === item.sourceSectionId
+    );
+    if (sourceSectionIndex === -1) return;
+    const sourceExerciseIndex = item.sourceExerciseIndex;
+
+    const targetDayIndex = getDayIndexByDate(days, targetDay);
+    if (targetDayIndex === -1) return;
+    const targetSectionIndex = days[targetDayIndex].sections.findIndex(
+      (s) => s.id === targetSectionId
+    );
+    if (targetSectionIndex === -1) return;
+    moveExerciseToSection(
+      {
+        dayIndex: sourceDayIndex,
+        sectionIndex: sourceSectionIndex,
+        exerciseIndex: sourceExerciseIndex,
+      },
+      {
+        dayIndex: targetDayIndex,
+        sectionIndex: targetSectionIndex,
+        exerciseIndex: targetExerciseIndex,
+      }
     );
   };
 
@@ -635,41 +542,43 @@ export default function CalendarPage() {
     const targetDayIndex = getDayIndexByDate(days, targetDay);
     if (targetDayIndex === -1) return;
 
-    if (days[targetDayIndex].sections.length === 0) {
-      const source = findExercise(
-        days,
-        item.sourceDay,
-        item.sourceSectionId,
-        item.exerciseId
-      );
-      if (!source) return;
+    const sourceDayIndex = getDayIndexByDate(days, item.sourceDay);
+    if (sourceDayIndex === -1) return;
+    const sourceSectionIndex = days[sourceDayIndex].sections.findIndex(
+      (s) => s.id === item.sourceSectionId
+    );
+    if (sourceSectionIndex === -1) return;
+    const sourceExerciseIndex = item.sourceExerciseIndex;
 
-      setDays((prev) => {
-        const { updatedDays, removed } = removeExerciseFrom(
-          source.dayIndex,
-          source.sectionIndex,
-          source.exerciseIndex,
-          prev
-        );
-
-        const createdSection: Section = {
-          id: `section-${targetDay}-${Date.now()}`,
-          title: "NEW SECTION",
-          exercises: [{ ...removed }],
-        };
-
-        const next = updatedDays.map((day, idx) =>
-          idx === targetDayIndex ? { ...day, sections: [createdSection] } : day
-        );
-        return next;
-      });
-    }
+    dispatch({
+      type: "DROP_EXERCISE_TO_DAY",
+      source: {
+        dayIndex: sourceDayIndex,
+        sectionIndex: sourceSectionIndex,
+        exerciseIndex: sourceExerciseIndex,
+      },
+      targetDayIndex,
+    });
+    void serverPatch({
+      type: "DROP_EXERCISE_TO_DAY",
+      source: {
+        dayIndex: sourceDayIndex,
+        sectionIndex: sourceSectionIndex,
+        exerciseIndex: sourceExerciseIndex,
+      },
+      targetDayIndex,
+    });
   };
+
+  useHorizontalAutoScrollOnDrag(scrollRef);
 
   return (
     <div className="min-h-screen bg-white p-6">
-      <div className="overflow-x-auto">
-        <div className="flex gap-4">
+      <div
+        className="overflow-x-auto w-full flex flex-col justify-center items-center"
+        ref={scrollRef}
+      >
+        <div className="flex gap-4 w-full justify-center items-center">
           {DAY_NAMES.map((dayName, dayIndex) => (
             <div key={dayIndex} className="flex-none min-w-60 text-start">
               <span className="text-xs font-medium text-gray-500">
@@ -678,7 +587,7 @@ export default function CalendarPage() {
             </div>
           ))}
         </div>
-        <div className="flex gap-4 mt-2">
+        <div className="flex gap-4 mt-2 w-full justify-center items-center">
           {days.map((day) => {
             const isToday = isSameDay(day.date, today);
             const dateString = String(day.date.getDate()).padStart(2, "0");
@@ -701,7 +610,7 @@ export default function CalendarPage() {
                     {
                       <Button
                         variant="icon-small"
-                        className="bg-gray-500 hover:border-none"
+                        className="bg-gray-500 hover:border-none hover:animate-pulse"
                         childrenClassName="text-white text-md"
                         onClick={() => startCreateForDay(day.date)}
                       >
@@ -716,7 +625,7 @@ export default function CalendarPage() {
                   </div>
 
                   <div className="flex flex-1 flex-col gap-4">
-                    {day.sections.map((section, sectionIndex) => (
+                    {day.sections?.map((section, sectionIndex) => (
                       <DraggableSection
                         key={section.id}
                         section={section}
@@ -731,10 +640,11 @@ export default function CalendarPage() {
                             <div className="relative">
                               <Button
                                 variant="unstyled"
-                                className="text-purple-600 hover:text-purple-700"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenSectionMenu({
+                                className="text-purple-600 hover:text-purple-700 hover:animate-pulse"
+                                onClick={() => {
+                                  setSectionTitleInput(section.title);
+                                  setSectionModal({
+                                    open: true,
                                     day: day.date,
                                     sectionId: section.id,
                                   });
@@ -747,97 +657,8 @@ export default function CalendarPage() {
                                   height={3}
                                 />
                               </Button>
-                              {openSectionMenu &&
-                                isSameDay(openSectionMenu.day, day.date) &&
-                                openSectionMenu.sectionId === section.id && (
-                                  <div
-                                    className="absolute right-0 mt-1 z-10 w-36 rounded-md border border-gray-200 bg-white shadow-md"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <button
-                                      className="w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50"
-                                      onClick={() => {
-                                        setSectionTitleInput(section.title);
-                                        setSectionModal({
-                                          open: true,
-                                          day: day.date,
-                                          sectionId: section.id,
-                                        });
-                                        setOpenSectionMenu(null);
-                                      }}
-                                    >
-                                      Edit name
-                                    </button>
-                                    <button
-                                      className="w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50"
-                                      onClick={() => {
-                                        setNewExerciseName("");
-                                        setNewExerciseSetsInfo("");
-                                        setNewExerciseSetsCount("1");
-                                        setExerciseModal({
-                                          open: true,
-                                          mode: "create",
-                                          day: day.date,
-                                          sectionId: section.id,
-                                        });
-                                        setOpenSectionMenu(null);
-                                      }}
-                                    >
-                                      Create
-                                    </button>
-                                  </div>
-                                )}
                             </div>
                           </div>
-
-                          {editingSection &&
-                            isSameDay(editingSection.day, day.date) &&
-                            editingSection.sectionId === section.id && (
-                              <div className="rounded-md border border-gray-200 bg-white p-2">
-                                <div className="flex items-center gap-2 flex-col">
-                                  <input
-                                    className="w-full flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:outline-none"
-                                    value={sectionTitleInput}
-                                    onChange={(e) =>
-                                      setSectionTitleInput(e.target.value)
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter")
-                                        saveEditSection(day.date, section.id);
-                                      if (e.key === "Escape")
-                                        cancelEditSection();
-                                    }}
-                                  />
-                                  <div className="flex items-center gap-1 justify-end w-full">
-                                    <Button
-                                      variant="icon-small"
-                                      className="bg-gray-500 hover:bg-gray-600"
-                                      childrenClassName="text-md"
-                                      onClick={() =>
-                                        saveEditSection(day.date, section.id)
-                                      }
-                                    >
-                                      ✓
-                                    </Button>
-                                    <Button
-                                      className="bg-gray-500 hover:bg-gray-600"
-                                      variant="icon-small"
-                                      onClick={() =>
-                                        deleteSection(day.date, section.id)
-                                      }
-                                    >
-                                      🗑
-                                    </Button>
-                                    <Button
-                                      variant="icon-small"
-                                      onClick={cancelEditSection}
-                                    >
-                                      ✕
-                                    </Button>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
 
                           <DroppableSection
                             section={section}
@@ -857,96 +678,20 @@ export default function CalendarPage() {
                             }}
                           >
                             <div className="flex flex-col gap-2">
-                              {section.exercises.map(
-                                (exercise, exerciseIndex) =>
-                                  editingExercise &&
-                                  isSameDay(editingExercise.day, day.date) &&
-                                  editingExercise.sectionId === section.id &&
-                                  editingExercise.exerciseId === exercise.id ? (
+                              {section.exercises?.map(
+                                (exercise, exerciseIndex) => {
+                                  if (!exercise?.id) return null;
+                                  return (
                                     <div
-                                      key={exercise.id}
-                                      className="rounded-md border border-gray-200 bg-white p-2.5"
+                                      key={`${section.id}-${exercise.id}-${exerciseIndex}`}
+                                      className="relative"
                                     >
-                                      <div className="flex flex-col gap-2">
-                                        <input
-                                          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:outline-none"
-                                          value={editExerciseName}
-                                          onChange={(e) =>
-                                            setEditExerciseName(e.target.value)
-                                          }
-                                        />
-                                        <div className="flex items-center gap-2">
-                                          <input
-                                            className="w-14 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:outline-none"
-                                            value={editExerciseSets}
-                                            onChange={(e) =>
-                                              setEditExerciseSets(
-                                                e.target.value
-                                              )
-                                            }
-                                          />
-                                          <span className="text-xs text-gray-500">
-                                            x
-                                          </span>
-                                          <input
-                                            className="flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:outline-none"
-                                            value={editExerciseDetails}
-                                            onChange={(e) =>
-                                              setEditExerciseDetails(
-                                                e.target.value
-                                              )
-                                            }
-                                            onKeyDown={(e) => {
-                                              if (e.key === "Enter")
-                                                saveEditExercise(
-                                                  day.date,
-                                                  section.id,
-                                                  exercise.id
-                                                );
-                                              if (e.key === "Escape")
-                                                cancelEditExercise();
-                                            }}
-                                          />
-                                          <Button
-                                            variant="icon-small"
-                                            onClick={() =>
-                                              saveEditExercise(
-                                                day.date,
-                                                section.id,
-                                                exercise.id
-                                              )
-                                            }
-                                          >
-                                            ✓
-                                          </Button>
-                                          <Button
-                                            variant="icon-small"
-                                            onClick={() =>
-                                              deleteExercise(
-                                                day.date,
-                                                section.id,
-                                                exercise.id
-                                              )
-                                            }
-                                          >
-                                            🗑
-                                          </Button>
-                                          <Button
-                                            variant="icon-small"
-                                            onClick={cancelEditExercise}
-                                          >
-                                            ✕
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div key={exercise.id} className="relative">
                                       <DraggableExercise
                                         exercise={exercise}
                                         dayDate={day.date}
                                         sectionId={section.id}
                                         exerciseIndex={exerciseIndex}
+                                        onDropOnExercise={handleExerciseDrop}
                                         onOpenEdit={(ex) => {
                                           setEditExerciseName(ex.name);
                                           setEditExerciseSets(ex.sets);
@@ -961,8 +706,34 @@ export default function CalendarPage() {
                                         }}
                                       />
                                     </div>
-                                  )
+                                  );
+                                }
                               )}
+                              <div className="flex justify-end pt-1">
+                                <Button
+                                  variant="icon-small"
+                                  className="bg-gray-500 hover:border-none hover:animate-pulse"
+                                  childrenClassName="text-white text-md"
+                                  onClick={() => {
+                                    setNewExerciseName("");
+                                    setNewExerciseSetsInfo("");
+                                    setNewExerciseSetsCount("1");
+                                    setExerciseModal({
+                                      open: true,
+                                      mode: "create",
+                                      day: day.date,
+                                      sectionId: section.id,
+                                    });
+                                  }}
+                                >
+                                  <Image
+                                    src="/plus.svg"
+                                    alt="Add exercise"
+                                    width={11}
+                                    height={11}
+                                  />
+                                </Button>
+                              </div>
                             </div>
                           </DroppableSection>
 
@@ -1086,6 +857,7 @@ export default function CalendarPage() {
                 Save
               </Button>
               <Button
+                variant="secondary"
                 loading={isSectionActionLoading}
                 onClick={() => {
                   if (isSectionActionLoading) return;
@@ -1123,6 +895,7 @@ export default function CalendarPage() {
             <>
               {exerciseModal.mode === "create" ? (
                 <Button
+                  variant="primary"
                   loading={isExerciseActionLoading}
                   onClick={() => {
                     if (isExerciseActionLoading) return;
@@ -1142,6 +915,7 @@ export default function CalendarPage() {
               ) : (
                 <>
                   <Button
+                    variant="primary"
                     loading={isExerciseActionLoading}
                     onClick={() => {
                       if (isExerciseActionLoading) return;
@@ -1164,6 +938,7 @@ export default function CalendarPage() {
                     Save
                   </Button>
                   <Button
+                    variant="secondary"
                     loading={isExerciseActionLoading}
                     onClick={() => {
                       if (isExerciseActionLoading) return;

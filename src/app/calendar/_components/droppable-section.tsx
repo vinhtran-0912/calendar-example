@@ -2,7 +2,6 @@
 
 import { useDrop } from "react-dnd";
 import type { RefObject } from "react";
-import Button from "../../components/button";
 import type {
   DragItem,
   SectionDragItem,
@@ -15,7 +14,6 @@ export default function DroppableSection({
   dayDate,
   onDrop,
   onSectionDrop,
-  onAddExercise,
   children,
 }: {
   section: Section;
@@ -31,15 +29,20 @@ export default function DroppableSection({
 }) {
   const [{ isOver }, drop] = useDrop<
     DragItem | SectionDragItem,
-    void,
+    { handled: true } | undefined,
     { isOver: boolean }
   >(() => ({
     accept: [ITEM_TYPES.EXERCISE, ITEM_TYPES.WORKOUT],
-    drop: (item) => {
-      if ("exerciseId" in item) onDrop(item as DragItem, dayDate, section.id);
-      else onSectionDrop(item as SectionDragItem, dayDate, section.id);
+    drop: (item, monitor) => {
+      if (monitor.didDrop()) return undefined;
+      if ("exerciseId" in item) {
+        onDrop(item as DragItem, dayDate, section.id);
+      } else {
+        onSectionDrop(item as SectionDragItem, dayDate, section.id);
+      }
+      return { handled: true };
     },
-    collect: (monitor) => ({ isOver: monitor.isOver() }),
+    collect: (monitor) => ({ isOver: monitor.isOver({ shallow: true }) }),
   }));
 
   return (
