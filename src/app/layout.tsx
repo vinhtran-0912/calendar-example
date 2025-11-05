@@ -20,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={openSans.variable}>
-      <body className="font-sans antialiased">
+    <html lang="en" className={openSans.variable} suppressHydrationWarning>
+      <body className="font-sans antialiased" suppressHydrationWarning>
         <DndProviderWrapper>{children}</DndProviderWrapper>
       </body>
     </html>

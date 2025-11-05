@@ -66,7 +66,7 @@ pnpm lint         # ESLint
 - Tailwind CSS v4: https://tailwindcss.com
 
 ## Explanation of My Thought Process
-- I use useReducer to manage complex state logic, since the calendar requires handling multiple state variables - The reducer pattern helps keep the state transitions organized and more scalable compared to multiple useState hooks.
+- I use useReducer to manage complex state logic, since the calendar requires handling multiple state variables - The reducer pattern helps keep the state transitions organized and more scalable compared to multiple useState hooks (src/app/lib/utils/calendar.ts).
 - I implement drag-and-drop functionality for two types of items: EXERCISE and WORKOUT
 - During drag-and-drop operations, I generate a new ID for the dropped item and remove the existing instance from the original column. This process is validated by comparing the target and source nodes.
 - On smaller screens, I add an auto-scroll feature while dragging items. The page will automatically scroll in the direction of the drag, ensuring a smoother and more natural user experience on mobile devices. (use AI to help me to do j code)

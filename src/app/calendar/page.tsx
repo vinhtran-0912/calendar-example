@@ -27,6 +27,9 @@ function DraggableExercise({
   exerciseIndex,
   onOpenEdit,
   onDropOnExercise,
+  onPreviewHover,
+  onDragStart,
+  onDragEnd,
 }: {
   exercise: Exercise;
   dayDate: Date;
@@ -39,6 +42,13 @@ function DraggableExercise({
     targetSectionId: string,
     targetExerciseIndex: number
   ) => void;
+  onPreviewHover: (args: {
+    day: Date;
+    sectionId: string;
+    index: number;
+  }) => void;
+  onDragStart: (args: { name: string; sets: string; details: string }) => void;
+  onDragEnd: () => void;
 }) {
   const [{ isDragging }, drag] = useDrag(() => ({
     type: ITEM_TYPES.EXERCISE,
@@ -51,9 +61,19 @@ function DraggableExercise({
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
+    end: () => onDragEnd(),
   }));
 
-  // This is used to drop the exercise on the section.
+  React.useEffect(() => {
+    if (isDragging) {
+      onDragStart({ name: exercise.name, sets: exercise.sets, details: exercise.details });
+    }
+    // no cleanup here; end() callback handles drag end
+  }, [isDragging, onDragStart, exercise.name, exercise.sets, exercise.details]);
+
+  const nodeRef = React.useRef<HTMLDivElement | null>(null);
+
+  // This is used to drop the exercise on or around another exercise to get index.
   const [, drop] = useDrop<DragItem, { handled: true } | undefined>(() => ({
     accept: [ITEM_TYPES.EXERCISE],
     drop: (item, monitor) => {
@@ -61,12 +81,22 @@ function DraggableExercise({
       onDropOnExercise(item, dayDate, sectionId, exerciseIndex);
       return { handled: true };
     },
+    hover: (item, monitor) => {
+      if (!nodeRef.current) return;
+      const clientOffset = monitor.getClientOffset();
+      if (!clientOffset) return;
+      const rect = nodeRef.current.getBoundingClientRect();
+      const middleY = rect.top + rect.height / 2;
+      const insertIndex = clientOffset.y < middleY ? exerciseIndex : exerciseIndex + 1;
+      onPreviewHover({ day: dayDate, sectionId, index: insertIndex });
+    },
   }));
 
   // This is used to set the ref for the drag and drop component.
   const setDragDropRef = React.useCallback(
     (node: HTMLDivElement | null) => {
       if (node) {
+        nodeRef.current = node;
         drag(drop(node));
       }
     },
@@ -101,6 +131,7 @@ function DroppableSection({
   dayDate,
   onDrop,
   onSectionDrop,
+  onPreviewHover,
   children,
 }: {
   section: Section;
@@ -112,6 +143,7 @@ function DroppableSection({
     targetSectionId: string
   ) => void;
   onAddExercise: (day: Date, sectionId: string) => void;
+  onPreviewHover: (args: { day: Date; sectionId: string; index: number }) => void;
   children: React.ReactNode;
 }) {
   const [{ isOver }, drop] = useDrop<
@@ -128,6 +160,12 @@ function DroppableSection({
         onSectionDrop(item, dayDate, section.id);
       }
       return { handled: true };
+    },
+    hover: (item) => {
+      if ("exerciseId" in item) {
+        // When hovering over empty space in the section, preview append at end
+        onPreviewHover({ day: dayDate, sectionId: section.id, index: section.exercises.length });
+      }
     },
     collect: (monitor) => ({
       isOver: monitor.isOver({ shallow: true }),
@@ -345,6 +383,56 @@ export default function CalendarPage() {
   const [isSectionActionLoading, setIsSectionActionLoading] = useState(false);
   const [isExerciseActionLoading, setIsExerciseActionLoading] = useState(false);
 
+  // Preview states
+  const [exercisePreview, setExercisePreview] = useState<
+    | { day: Date; sectionId: string; index: number }
+    | null
+  >(null);
+  const [sectionPreview, setSectionPreview] = useState<
+    | { day: Date; index: number }
+    | null
+  >(null);
+  const [draggingExerciseData, setDraggingExerciseData] = useState<
+    { name: string; sets: string; details: string } | null
+  >(null);
+
+  // Stable setters to avoid unnecessary state updates during hover
+  const updateExercisePreview = React.useCallback(
+    (next: { day: Date; sectionId: string; index: number }) => {
+      setExercisePreview((prev) => {
+        if (
+          !prev ||
+          prev.day.getTime() !== next.day.getTime() ||
+          prev.sectionId !== next.sectionId ||
+          prev.index !== next.index
+        ) {
+          return next;
+        }
+        return prev;
+      });
+    },
+    []
+  );
+
+  const updateSectionPreview = React.useCallback(
+    (next: { day: Date; index: number }) => {
+      setSectionPreview((prev) => {
+        if (!prev || !isSameDay(prev.day, next.day) || prev.index !== next.index) {
+          return next;
+        }
+        return prev;
+      });
+    },
+    []
+  );
+
+  const handleExerciseDragStart = React.useCallback(
+    (data: { name: string; sets: string; details: string }) => {
+      setDraggingExerciseData(data);
+    },
+    []
+  );
+
   const startCreateForDay = (date: Date) => {
     setCreatingDay(date);
     setNewWorkoutTitle("");
@@ -451,6 +539,7 @@ export default function CalendarPage() {
       targetDayIndex,
       targetSectionIndex,
     });
+    setSectionPreview(null);
   };
 
   const onSectionDayDrop = (item: SectionDragItem, targetDay: Date) => {
@@ -471,6 +560,7 @@ export default function CalendarPage() {
       targetDayIndex,
       targetSectionIndex: days[targetDayIndex].sections.length,
     });
+    setSectionPreview(null);
   };
 
   const handleDrop = (
@@ -502,6 +592,7 @@ export default function CalendarPage() {
       },
       { dayIndex: targetDayIndex, sectionIndex: targetSectionIndex }
     );
+    setExercisePreview(null);
   };
 
   const handleExerciseDrop = (
@@ -536,6 +627,7 @@ export default function CalendarPage() {
         exerciseIndex: targetExerciseIndex,
       }
     );
+    setExercisePreview(null);
   };
 
   const handleDayDrop = (item: DragItem, targetDay: Date) => {
@@ -568,7 +660,67 @@ export default function CalendarPage() {
       },
       targetDayIndex,
     });
+    setExercisePreview(null);
   };
+
+  // Section insertion indicator component
+  function SectionInsertionIndicator({
+    dayDate,
+    index,
+  }: {
+    dayDate: Date;
+    index: number;
+  }) {
+    const [, drop] = useDrop<SectionDragItem, { handled: true } | undefined>(() => ({
+      accept: [ITEM_TYPES.WORKOUT],
+      hover: () => {
+        updateSectionPreview({ day: dayDate, index });
+      },
+      drop: (item, monitor) => {
+        if (monitor.didDrop()) return undefined;
+        const sourceDayIndex = getDayIndexByDate(days, item.sourceDay);
+        const targetDayIndex = getDayIndexByDate(days, dayDate);
+        if (sourceDayIndex === -1 || targetDayIndex === -1) return { handled: true };
+        dispatch({
+          type: "MOVE_SECTION",
+          sourceDayIndex,
+          sourceSectionIndex: item.sourceSectionIndex,
+          targetDayIndex,
+          targetSectionIndex: index,
+        });
+        void serverPatch({
+          type: "MOVE_SECTION",
+          sourceDayIndex,
+          sourceSectionIndex: item.sourceSectionIndex,
+          targetDayIndex,
+          targetSectionIndex: index,
+        });
+        setSectionPreview(null);
+        return { handled: true };
+      },
+    }));
+    const isActive =
+      !!sectionPreview && isSameDay(sectionPreview.day, dayDate) && sectionPreview.index === index;
+    return (
+      <div ref={drop as unknown as RefObject<HTMLDivElement>} className="relative my-1 h-2">
+        {isActive && (
+          <div className="pointer-events-none absolute -top-2 left-0 right-0">
+            <div className="group flex flex-col gap-2.5 border border-dashed border-gray-300 rounded-md py-2.5 px-1 bg-white shadow-sm">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold leading-tight text-gray-700 uppercase truncate max-w-36">
+                  Drop section here
+                </h3>
+              </div>
+              <div className="flex flex-col gap-2">
+                <div className="h-6 bg-gray-100 rounded" />
+                <div className="h-6 bg-gray-100 rounded" />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   useHorizontalAutoScrollOnDrag(scrollRef);
 
@@ -626,12 +778,13 @@ export default function CalendarPage() {
 
                   <div className="flex flex-1 flex-col gap-4">
                     {day.sections?.map((section, sectionIndex) => (
-                      <DraggableSection
-                        key={section.id}
-                        section={section}
-                        dayDate={day.date}
-                        index={sectionIndex}
-                      >
+                      <React.Fragment key={section.id}>
+                        <SectionInsertionIndicator dayDate={day.date} index={sectionIndex} />
+                        <DraggableSection
+                          section={section}
+                          dayDate={day.date}
+                          index={sectionIndex}
+                        >
                         <div className="group flex flex-col gap-2.5 border border-gray-200 rounded-md py-2.5 px-1">
                           <div className="flex items-center justify-between">
                             <h3 className="text-xs font-semibold leading-tight text-purple-600 uppercase truncate max-w-36">
@@ -665,6 +818,9 @@ export default function CalendarPage() {
                             dayDate={day.date}
                             onDrop={handleDrop}
                             onSectionDrop={onSectionDrop}
+                            onPreviewHover={({ day, sectionId, index }) =>
+                              updateExercisePreview({ day, sectionId, index })
+                            }
                             onAddExercise={(d, sId) => {
                               setNewExerciseName("");
                               setNewExerciseSetsInfo("");
@@ -686,12 +842,29 @@ export default function CalendarPage() {
                                       key={`${section.id}-${exercise.id}-${exerciseIndex}`}
                                       className="relative"
                                     >
+                                      {/* Exercise insertion preview before this item */}
+                                      {exercisePreview &&
+                                        isSameDay(exercisePreview.day, day.date) &&
+                                        exercisePreview.sectionId === section.id &&
+                                        exercisePreview.index === exerciseIndex && (
+                                          <Card isDragging className="cursor-move flex flex-col items-end my-1">
+                                            <div className="mb-1 w-full truncate max-w-48 text-end text-xs font-medium leading-tight text-gray-900">
+                                              {draggingExerciseData?.name ?? ""}
+                                            </div>
+                                            <div className="flex items-baseline gap-1 text-[11px] leading-tight text-gray-600 justify-between w-full">
+                                              <strong className="text-gray-500">{draggingExerciseData?.sets ?? ""}x</strong>
+                                              <span className="truncate max-w-40">{draggingExerciseData?.details ?? ""}</span>
+                                            </div>
+                                          </Card>
+                                        )}
                                       <DraggableExercise
                                         exercise={exercise}
                                         dayDate={day.date}
                                         sectionId={section.id}
                                         exerciseIndex={exerciseIndex}
                                         onDropOnExercise={handleExerciseDrop}
+                                        onDragStart={handleExerciseDragStart}
+                                        onPreviewHover={updateExercisePreview}
                                         onOpenEdit={(ex) => {
                                           setEditExerciseName(ex.name);
                                           setEditExerciseSets(ex.sets);
@@ -704,11 +877,30 @@ export default function CalendarPage() {
                                             exerciseId: ex.id,
                                           });
                                         }}
+                                        onDragEnd={() => {
+                                          setExercisePreview(null);
+                                          setDraggingExerciseData(null);
+                                        }}
                                       />
                                     </div>
                                   );
                                 }
                               )}
+                              {/* Exercise insertion preview at end */}
+                              {exercisePreview &&
+                                isSameDay(exercisePreview.day, day.date) &&
+                                exercisePreview.sectionId === section.id &&
+                                exercisePreview.index === section.exercises.length && (
+                                  <Card isDragging className="cursor-move flex flex-col items-end my-1">
+                                    <div className="mb-1 w-full truncate max-w-48 text-end text-xs font-medium leading-tight text-gray-900">
+                                      {draggingExerciseData?.name ?? ""}
+                                    </div>
+                                    <div className="flex items-baseline gap-1 text-[11px] leading-tight text-gray-600 justify-between w-full">
+                                      <strong className="text-gray-500">{draggingExerciseData?.sets ?? ""}x</strong>
+                                      <span className="truncate max-w-40">{draggingExerciseData?.details ?? ""}</span>
+                                    </div>
+                                  </Card>
+                                )}
                               <div className="flex justify-end pt-1">
                                 <Button
                                   variant="icon-small"
@@ -798,8 +990,15 @@ export default function CalendarPage() {
                               </div>
                             )}
                         </div>
-                      </DraggableSection>
+                        </DraggableSection>
+                      </React.Fragment>
                     ))}
+
+                    {/* Section insertion preview at end of day */}
+                    <SectionInsertionIndicator
+                      dayDate={day.date}
+                      index={day.sections.length}
+                    />
 
                     {creatingDay && isSameDay(creatingDay, day.date) && (
                       <div className="rounded-md border border-gray-200 bg-white p-2">
